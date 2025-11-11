@@ -1,4 +1,7 @@
 import streamlit as st
+st.set_page_config(layout="wide", page_title="DC Analysis", page_icon="🔋")
+from utils import check_login
+check_login() 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -9,10 +12,10 @@ from pathlib import Path
 import io
 
 # Import shared functions
-from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence
+from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence      
 
 # =======================================================================
-# SECTION 1: DC DATA LOADING FUNCTION
+# SECTION 1: DC DATA LOADING FUNCTION (Unchanged)
 # =======================================================================
 
 @st.cache_data
@@ -51,7 +54,7 @@ def load_and_prep_dc_data(uploaded_file, sep=';', dayfirst=False) -> pd.DataFram
     return df
 
 # =======================================================================
-# SECTION 3: DC ANALYZER CLASS
+# SECTION 3: DC ANALYZER CLASS (Unchanged)
 # =======================================================================
 
 class DcCapacityTestAnalyzer:
@@ -165,7 +168,7 @@ class DcCapacityTestAnalyzer:
         self.dc_system_soc = soc_wide.mean(axis=1).sort_index()
 
 # =======================================================================
-# SECTION 4: PLOTTING FUNCTIONS
+# SECTION 4: PLOTTING FUNCTIONS (Unchanged)
 # =======================================================================
 
 def get_dc_efficiency_bar_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
@@ -229,6 +232,11 @@ def get_dc_soc_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
 
 st.title("🔋 DC-Side Capacity & RTE Analysis")
 
+# --- Import login check ---
+from utils import check_login
+check_login() # <-- This is the guard for the page
+
+# --- Initialize page-specific state ---
 if 'dc_analyzer' not in st.session_state: st.session_state.dc_analyzer = None
 if 'dc_df' not in st.session_state: st.session_state.dc_df = None
 if 'dc_last_file_id' not in st.session_state: st.session_state.dc_last_file_id = None
@@ -250,21 +258,16 @@ uploaded_file = st.sidebar.file_uploader("Upload DC Data File (CSV)", type=["csv
 
 # --- MODIFIED: Robust state logic ---
 if uploaded_file is None:
-    # If uploader is empty, only reset if we have no file ID saved
     if 'dc_last_file_id' not in st.session_state or st.session_state.dc_last_file_id is None:
         st.info("Upload your DC-side (MVPS) file to continue.")
         st.session_state.dc_last_file_id = None
         st.session_state.dc_df = None
         st.session_state.dc_analyzer = None
-    # If it's empty but we have a file ID, user is on another page.
-    # We do *nothing* and let the rest of the script use the data in st.session_state.
     
 elif uploaded_file.file_id != st.session_state.get('dc_last_file_id'):
-    # This is a NEW file upload
     st.session_state.dc_last_file_id = uploaded_file.file_id
     st.session_state.dc_df = None # Force re-load
     st.session_state.dc_analyzer = None # Clear old results
-    st.rerun()
 
 elif 'dc_df' not in st.session_state or st.session_state.dc_df is None:
     # This catches the first run after upload
@@ -286,13 +289,11 @@ if 'dc_df' in st.session_state and st.session_state.dc_df is not None:
     st.sidebar.subheader("Column Selection")
     
     def get_idx(cols, candidates, default=0):
-        # Find first candidate that exists in cols
         for cand in candidates:
             if cand in cols:
-                # Find index of this candidate
                 try: return cols.index(cand)
                 except ValueError: continue
-        return default # Fallback
+        return default
 
     st.sidebar.selectbox("Device ID Column", all_cols, index=get_idx(all_cols, ["Device", "Cluster", "String"]), key="dc_device_col")
     st.sidebar.selectbox("DC Power Column", all_cols, index=get_idx(all_cols, ["DcTotWatt", "Power", "DC_Power"]), key="dc_power_col")

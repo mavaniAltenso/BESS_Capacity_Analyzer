@@ -1,3 +1,5 @@
+# In utils.py
+
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -5,9 +7,46 @@ import re
 from typing import Optional
 
 # =======================================================================
-# SHARED HELPER FUNCTIONS
+# NEW: PASSWORD FUNCTION (Corrected)
 # =======================================================================
+def check_login():
+    """
+    Checks if user is logged in. 
+    If not, draws login form and stops the page execution.
+    """
+    if st.session_state.get("logged_in"):
+        return True
 
+    # --- We removed st.set_page_config() from here ---
+    
+    st.title("🔋 BESS Analyzer Login")
+    st.write("Please enter your credentials to access the application.")
+    
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login")
+
+        if submitted:
+            if "credentials" not in st.secrets or "users" not in st.secrets["credentials"]:
+                st.error("Secrets not configured correctly. Contact administrator.")
+                st.stop() # Stop execution
+
+            users_dict = st.secrets["credentials"]["users"]
+            
+            if username in users_dict and users_dict[username] == password:
+                st.session_state["logged_in"] = True
+                st.session_state["username"] = username
+                st.rerun()  # Rerun the script to show the main app
+            else:
+                st.error("Incorrect username or password")
+
+    st.stop()
+    return False
+
+# =======================================================================
+# SHARED HELPER FUNCTIONS (No changes below this line)
+# =======================================================================
 def _sanitize_time_col(d: pd.DataFrame, time_col: str) -> pd.DataFrame:
     d = d.copy()
     d[time_col] = pd.to_datetime(d[time_col], errors="coerce")

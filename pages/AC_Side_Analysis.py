@@ -1,4 +1,11 @@
+# In pages/AC_Side_Analysis.py
+
 import streamlit as st
+st.set_page_config(layout="wide", page_title="AC Analysis", page_icon="⚡")
+from utils import check_login
+check_login() # <-- This is the guard for the page
+
+# --- The rest of your code is unchanged ---
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -372,6 +379,11 @@ def plot_calc_poi_egymtr(df_energy: pd.DataFrame,
 
 st.title("⚡ AC-Side Capacity & RTE Analysis")
 
+# --- Import login check ---
+from utils import check_login
+check_login() # <-- This is the guard for the page
+
+# --- Initialize page-specific state ---
 STATE_INIT, STATE_PROCESSING, STATE_CHOOSE_ANALYSIS, STATE_CONFIGURE, STATE_RUNNING, STATE_RESULTS = "INIT", "PROC", "CHOOSE", "CONFIG", "RUN", "RES"
 if 'ac_workflow_state' not in st.session_state: 
     st.session_state.ac_workflow_state = STATE_INIT
@@ -388,14 +400,13 @@ uploaded_file = st.sidebar.file_uploader("Upload AC Data File (HyCon)", type=["c
 
 # --- MODIFIED: Robust state logic ---
 if uploaded_file is None:
-    # If the uploader is empty, only reset if we haven't loaded a file before.
+    # If the uploader is empty AND we have no file ID, this is the initial state.
     if 'ac_last_file_id' not in st.session_state or st.session_state.ac_last_file_id is None:
         st.info("Upload your AC-side (HyCon) file to begin.")
         st.session_state.ac_workflow_state = STATE_INIT
-        st.session_state.ac_last_file_id = None
         st.session_state.ac_df = None
         st.session_state.ac_results = None
-    # If it's empty but we *have* a file ID, it means we're on another page.
+    # If uploader is empty but we DO have a file ID, user is on another page.
     # We do *nothing* and let the rest of the script use the data in st.session_state.
     
 elif uploaded_file.file_id != st.session_state.get('ac_last_file_id'): 
@@ -405,7 +416,7 @@ elif uploaded_file.file_id != st.session_state.get('ac_last_file_id'):
     st.session_state.ac_results = None # Clear old results
     st.rerun()
 
-elif st.session_state.ac_workflow_state == STATE_INIT:
+elif st.session_state.ac_workflow_state == STATE_INIT and 'ac_df' not in st.session_state:
     # This handles the very first run after uploading a file
     st.session_state.ac_workflow_state = STATE_PROCESSING
     st.rerun()
