@@ -1,0 +1,16 @@
+# Streamlit
+.streamlit/
+
+# VS Code
+.vscode/
+.vs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+.venv/
+venv/
