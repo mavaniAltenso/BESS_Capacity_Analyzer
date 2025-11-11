@@ -4,9 +4,7 @@ import numpy as np
 
 st.title("📊 System Summary & Inverter Efficiency")
 
-# =======================================================================
-# 1. CHECK IF DATA IS AVAILABLE
-# =======================================================================
+
 ac_summary = st.session_state.get('ac_results_summary')
 dc_totals = st.session_state.get('dc_results_totals')
 
@@ -20,9 +18,9 @@ if not isinstance(ac_summary, pd.DataFrame) or not isinstance(dc_totals, dict):
         st.info("Missing: DC-Side Results. Go to `DC_Side_Analysis`.")
     st.stop()
 
-# =======================================================================
+
 # 2. EXTRACT DATA & CALCULATE INVERTER EFFICIENCY
-# =======================================================================
+
 
 try:
     # --- Helper to find value in the AC summary table ---
@@ -55,9 +53,8 @@ try:
     loss_dc_roundtrip_kwh = E_dc_in - E_dc_out
     loss_total_kwh = E_ac_in - E_ac_out
 
-    # =======================================================================
+
     # 3. DISPLAY SUMMARY TABLES
-    # =======================================================================
 
     st.subheader("System Efficiency Summary")
     

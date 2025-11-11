@@ -1,9 +1,6 @@
 import streamlit as st
 import pandas as pd
 
-# =======================================================================
-# MAIN APP HOMEPAGE
-# =======================================================================
 
 # st.set_page_config() can only be called once, and it must be in the main app.py file
 st.set_page_config(
@@ -35,19 +32,19 @@ st.title("🔋 BESS Capacity & RTE Test Analyzer")
 st.info("Welcome! Please select an analysis from the sidebar to begin.")
 
 st.markdown("""
-### How to use this tool:
+### Tool Guide:
 
-1.  **Start with `1_⚡_AC_Side_Analysis`:**
+1.  **Start with `⚡_AC_Side_Analysis`:**
     * Upload your AC-side (HyCon) data file.
-    * The app will auto-detect charge/discharge events.
-    * Select the events you wish to analyze. This will set the "master time windows" for the whole app.
+    * The app will auto-detect charge/discharge events based on Idle power and min time duration.
+    * Select the events you wish to analyze. This will set the "Time windows" for the whole app.
     * Run the AC analysis.
 
-2.  **Go to `2_🔋_DC_Side_Analysis`:**
+2.  **Go to `🔋_DC_Side_Analysis`:**
     * The app will automatically use the time windows you selected from the AC analysis.
-    * Upload your DC-side (MVPS) data file and select the correct columns.
+    * Upload your DC-side (Hymon) data file and select the correct columns for power.
     * Run the DC analysis.
 
-3.  **View `3_📊_System_Summary`:**
-    * This page will automatically show a combined report comparing AC and DC results, including inverter efficiencies.
+3.  **View `📊_System_Summary`:**
+    * This page will show a combined report comparing AC and DC results, including inverter efficiencies.
 """)
