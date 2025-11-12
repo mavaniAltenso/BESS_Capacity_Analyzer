@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 from utils import check_login # Import the shared function
 
-# =======================================================================
 # 1. PAGE CONFIGURATION AND LOGIN CHECK
-# =======================================================================
 
 # Set the page config for the *main app* (after login)
 st.set_page_config(
@@ -18,9 +16,7 @@ st.set_page_config(
 # The check_login function will handle stopping the script if not logged in.
 check_login()
 
-# =======================================================================
 # 2. MAIN APPLICATION (This code only runs if login is successful)
-# =======================================================================
     
 # --- Initialize session state keys for sharing data between pages ---
 if 'master_charge_start' not in st.session_state:
@@ -76,7 +72,7 @@ with st.expander("How Calculations Work"):
     
     ---
     
-    ### Full-Cycle RTE (Method 2) Calculations
+    ### Full-Cycle RTE Calculations
     
     This method uses the **full "zero-to-zero" event windows** for calculations. Let $P_{AC}(t)$ be the AC power and $P_{DC,total}(t)$ be the total DC power.
     
@@ -100,7 +96,7 @@ with st.expander("How Calculations Work"):
         E_{DC,out} = \int_{T_{discharge,start}}^{T_{discharge,end}} \max(0, P_{DC,total}(t)) \,dt
         $$
         
-    ### Nominal Power RTE (Method 1) Calculations
+    ### Nominal Power RTE Calculations
     
     This method uses the *exact same formulas* as above, but it first **filters the data**. The integrals are only performed on time slices where the power $P(t)$ is inside the user-defined "Nominal" tolerance band.
     """)

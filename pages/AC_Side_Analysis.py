@@ -17,9 +17,9 @@ import io
 # Import shared functions
 from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence
 
-# =======================================================================
+
 # SECTION 1: AC DATA LOADING FUNCTION (Unchanged)
-# =======================================================================
+
 
 @st.cache_data
 def load_hycon_hybrid_fast(uploaded_file,
@@ -58,9 +58,9 @@ def load_hycon_hybrid_fast(uploaded_file,
     df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce', utc=parse_timestamp_utc)
     return df
 
-# =======================================================================
+
 # SECTION 2.5: 3-STATE DETECTION FUNCTION (Unchanged)
-# =======================================================================
+
 
 @st.cache_data
 def find_all_events(df_ac: pd.DataFrame, time_col: str, power_col: str, idle_threshold_kw: float, min_duration_s: float) -> List[Dict]:
@@ -91,9 +91,9 @@ def find_all_events(df_ac: pd.DataFrame, time_col: str, power_col: str, idle_thr
             events.append({"type": "Discharge" if block_state == 1 else "Charge", "start": start_time, "end": end_time})
     return sorted(events, key=lambda x: x['start'])
 
-# =======================================================================
+
 # SECTION 3: AC-SIDE ANALYSIS FUNCTIONS (MERGED KPI LOGIC)
-# =======================================================================
+
 
 def compute_nominal_from_poi_plotly(
     df: pd.DataFrame, discharge_start, discharge_end, 
@@ -312,11 +312,11 @@ def compute_nominal_from_poi_plotly(
     values.extend(["", ts_start.strftime('%H:%M:%S'), ts_end.strftime('%H:%M:%S'), P_nom_kW_kpi, tol_pct_kpi, round(actual_energy_kWh, 3), round(longest_s/60.0, 3)])
 
     if has_charge:
-        metrics.extend(["--- FULL-CYCLE RTE (Method 2) ---", "Charge Start Time", "Charge End Time", "Discharge Start Time", "Discharge End Time", "Total Energy IN (kWh)", "Total Energy OUT (kWh)", "Full-Cycle RTE (%)"])
+        metrics.extend(["--- FULL-CYCLE RTE ---", "Charge Start Time", "Charge End Time", "Discharge Start Time", "Discharge End Time", "Total Energy IN (kWh)", "Total Energy OUT (kWh)", "Full-Cycle RTE (%)"])
         values.extend(["", c_start.strftime('%H:%M:%S'), c_end.strftime('%H:%M:%S'), ts_start.strftime('%H:%M:%S'), ts_end.strftime('%H:%M:%S'), round(E_ch_kWh, 3) if not np.isnan(E_ch_kWh) else None, round(E_dis_kWh, 3) if not np.isnan(E_dis_kWh) else None, round(RTE_pct, 3) if not np.isnan(RTE_pct) else None])
 
         metrics.extend([
-            "--- NOMINAL POWER RTE (Method 1) ---",
+            "--- NOMINAL POWER RTE ---",
             "Charge Band",
             "Nominal Charge Start",
             "Nominal Charge End",
@@ -390,9 +390,9 @@ def plot_calc_poi_egymtr(df_energy: pd.DataFrame,
     )
     return fig
 
-# =======================================================================
+
 # SECTION 4: WORKFLOW APPLICATION (SIMPLIFIED UI)
-# =======================================================================
+
 
 st.title("⚡ AC-Side Capacity & RTE Analysis")
 
@@ -523,7 +523,7 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
 
 
     if st.session_state.ac_workflow_state == STATE_CHOOSE_ANALYSIS:
-        with st.expander("Show Data Preview (First 10 Rows)"):
+        with st.expander("Data Preview"):
             st.dataframe(st.session_state.ac_df.head(10), use_container_width=True)
         
         all_events = find_all_events(st.session_state.ac_df, 
@@ -538,12 +538,12 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
         c1, c2 = st.columns(2)
         with c1:
             with st.container(border=True):
-                st.markdown("#### 🔄 Round-Trip Efficiency")
+                st.markdown("#### ⚙️ Select charging & discharging cycle 🔋")
                 if not dis_events or not ch_events: st.warning("Need both charge & discharge.")
                 else:
                     sel_ch = st.selectbox("1. Charge Event", [format_event(e) for e in ch_events], key="rte_ch")
                     sel_dis_rte = st.selectbox("2. Discharge Event", [format_event(e) for e in dis_events], key="rte_dis")
-                    if st.button("Configure RTE", use_container_width=True):
+                    if st.button("Evaluate RTE", use_container_width=True):
                         ch_ev = next(e for e in ch_events if format_event(e) == sel_ch)
                         dis_ev = next(e for e in dis_events if format_event(e) == sel_dis_rte)
                         st.session_state.master_charge_start = ch_ev['start']
@@ -557,7 +557,7 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
             with st.container(border=True):
                 st.markdown("#### ⌨️ Manual Input")
                 st.info("Manually enter all start/end times.")
-                if st.button("Configure Manual", use_container_width=True):
+                if st.button("Evaluate Manual", use_container_width=True):
                     st.session_state.master_charge_start, st.session_state.master_charge_end = None, None
                     st.session_state.master_discharge_start, st.session_state.master_discharge_end = None, None
                     st.session_state.ac_analysis_config = {"analysis_type": "MANUAL"}
@@ -621,7 +621,7 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
             st.subheader("AC Analysis Results")
             st.dataframe(res['summary_table'], hide_index=True, use_container_width=True)
             
-            t1, t2, t3 = st.tabs(["AC Power Analysis", "Cumulative Energy & SOC", "Full SOC Plot"])
+            t1, t2, t3 = st.tabs(["AC Power Analysis", "Cumulative Energy & SOC", "SOC Plot"])
             
             with t1: 
                 st.plotly_chart(res['figure'], use_container_width=True)
@@ -634,7 +634,7 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
             
             with t3: 
                 st.plotly_chart(res['figure_soc'], use_container_width=True)
-                st.download_button("Download Full SOC Plot (HTML)", res['figure_soc'].to_html(), "soc_plot.html", "text/html")
+                st.download_button("Download SOC Plot (HTML)", res['figure_soc'].to_html(), "soc_plot.html", "text/html")
 
             if res['warnings']:
                 st.subheader("Analysis Warnings")

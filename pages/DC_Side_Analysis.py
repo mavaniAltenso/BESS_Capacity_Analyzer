@@ -19,15 +19,13 @@ import io
 from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence 
 
 
-# =======================================================================
+
 # SECTION 1: DC DATA LOADING FUNCTION (Unchanged)
-# =======================================================================
+
 
 @st.cache_data
 def load_and_prep_dc_data(uploaded_file, sep=';', dayfirst=False) -> pd.DataFrame:
-    """
-    Loads and prepares the DC-side CSV file from an uploaded file object.
-    """
+
     df = pd.read_csv(uploaded_file, sep=sep, dtype=str, engine='python')
     df.columns = df.columns.str.strip()
     required_time_cols = ['Date', 'Time']
@@ -59,9 +57,9 @@ def load_and_prep_dc_data(uploaded_file, sep=';', dayfirst=False) -> pd.DataFram
     return df
 
 
-# =======================================================================
+
 # SECTION 3: DC ANALYZER CLASS (Unchanged)
-# =======================================================================
+
 
 class DcCapacityTestAnalyzer:
     def __init__(self, master_config: dict, df_dc: pd.DataFrame):
@@ -188,9 +186,9 @@ class DcCapacityTestAnalyzer:
         self.dc_system_soc = soc_wide.mean(axis=1).sort_index()
 
 
-# =======================================================================
+
 # SECTION 4: PLOTTING FUNCTIONS (FIXED)
-# =======================================================================
+
 
 def get_dc_efficiency_bar_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
     fig = go.Figure()
@@ -217,7 +215,7 @@ def get_dc_efficiency_bar_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
 
 # --- MODIFIED: This function is now fixed ---
 def get_dc_energy_soc_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
-    """Creates the DC cumulative energy & SOC Plotly figure."""
+
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
     e_data = analyzer.dc_system_cumulative_energy
@@ -272,11 +270,11 @@ def get_dc_energy_soc_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
 # --- END MODIFICATION ---
 
 
-# =======================================================================
-# SECTION 5: STREAMLIT APP (MODIFIED)
-# =======================================================================
 
-st.title("🔋 DC-Side Capacity & RTE Analysis")
+# SECTION 5: STREAMLIT APP (MODIFIED)
+
+
+st.title("🔋 DC Capacity & RTE Analysis")
 
 from utils import check_login
 check_login() 
@@ -325,7 +323,7 @@ if 'dc_df' in st.session_state and st.session_state.dc_df is not None:
     df = st.session_state.dc_df
     all_cols = df.columns.tolist()
 
-    with st.expander("Show Data Preview (First 10 Rows)"):
+    with st.expander("Data Preview"):
         st.dataframe(df.head(10), use_container_width=True)
 
     st.sidebar.subheader("Column Selection")
