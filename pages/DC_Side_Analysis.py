@@ -2,6 +2,7 @@ import streamlit as st
 st.set_page_config(layout="wide", page_title="DC Analysis", page_icon="🔋")
 from utils import check_login
 check_login() 
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -14,9 +15,9 @@ import io
 # Import shared functions
 from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence      
 
-# =======================================================================
+
 # SECTION 1: DC DATA LOADING FUNCTION (Unchanged)
-# =======================================================================
+
 
 @st.cache_data
 def load_and_prep_dc_data(uploaded_file, sep=';', dayfirst=False) -> pd.DataFrame:
@@ -53,9 +54,9 @@ def load_and_prep_dc_data(uploaded_file, sep=';', dayfirst=False) -> pd.DataFram
     df = df.set_index('Datetime').sort_index()
     return df
 
-# =======================================================================
+
 # SECTION 3: DC ANALYZER CLASS (Unchanged)
-# =======================================================================
+
 
 class DcCapacityTestAnalyzer:
     def __init__(self, master_config: dict, df_dc: pd.DataFrame):
@@ -167,9 +168,9 @@ class DcCapacityTestAnalyzer:
              
         self.dc_system_soc = soc_wide.mean(axis=1).sort_index()
 
-# =======================================================================
+
 # SECTION 4: PLOTTING FUNCTIONS (Unchanged)
-# =======================================================================
+
 
 def get_dc_efficiency_bar_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
     fig = go.Figure()
@@ -226,9 +227,9 @@ def get_dc_soc_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
     )
     return fig
 
-# =======================================================================
+
 # SECTION 5: STREAMLIT APP (STATE MANAGEMENT FIXED)
-# =======================================================================
+
 
 st.title("🔋 DC-Side Capacity & RTE Analysis")
 
