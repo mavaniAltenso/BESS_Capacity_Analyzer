@@ -1,3 +1,5 @@
+# In pages/DC_Side_Analysis.py
+
 import streamlit as st
 st.set_page_config(layout="wide", page_title="DC Analysis", page_icon="🔋")
 from utils import check_login
@@ -6,6 +8,7 @@ check_login()
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots # <-- NEW IMPORT
 import warnings
 import re
 from typing import Optional, Dict, List, Tuple, Set
@@ -13,11 +16,12 @@ from pathlib import Path
 import io
 
 # Import shared functions
-from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence      
+from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence 
 
 
+# =======================================================================
 # SECTION 1: DC DATA LOADING FUNCTION (Unchanged)
-
+# =======================================================================
 
 @st.cache_data
 def load_and_prep_dc_data(uploaded_file, sep=';', dayfirst=False) -> pd.DataFrame:
@@ -55,8 +59,9 @@ def load_and_prep_dc_data(uploaded_file, sep=';', dayfirst=False) -> pd.DataFram
     return df
 
 
+# =======================================================================
 # SECTION 3: DC ANALYZER CLASS (Unchanged)
-
+# =======================================================================
 
 class DcCapacityTestAnalyzer:
     def __init__(self, master_config: dict, df_dc: pd.DataFrame):
@@ -98,29 +103,49 @@ class DcCapacityTestAnalyzer:
         t_ch_s, t_ch_e = self.config['charge_start'], self.config['charge_end']
         t_dis_s, t_dis_e = self.config['discharge_start'], self.config['discharge_end']
         P_COL = self.config['dc_power_col']
+        SAMPLING_SECONDS = self.config.get('sampling_seconds')
         
         for dev, d in self.dfs_by_device.items():
             if P_COL not in d.columns: continue
             dd = d.sort_index().copy()
-            scale = 1000.0 if self.config.get('dc_is_power_in_watts', False) else 1.0
+            scale = 1.0 # Assumes kW
             
             dd[P_COL] = pd.to_numeric(dd[P_COL], errors='coerce')
             P = dd[P_COL].fillna(0.0).to_numpy() / scale
 
-            if not self.config.get('dc_discharge_positive', True): P = -P
-            dd["P"] = P
+            dd["P"] = P # Assumes positive discharge
 
-            dd["dt_s"] = dd.index.to_series().diff().dt.total_seconds().fillna(method='bfill')
-            dd = dd[dd["dt_s"] > 0]
+            def _prep_window(g: pd.DataFrame) -> pd.DataFrame:
+                if g.empty or len(g) < 2: return g
+                g["dt_s"] = g.index.to_series().diff().dt.total_seconds()
+                first_dt = (g.index[1] - g.index[0]).total_seconds()
+                g.iloc[0, g.columns.get_loc("dt_s")] = first_dt
+                g = g.dropna(subset=["dt_s"])
+                g = g[g["dt_s"] > 0]
+                return g
+            
+            d_ch = _prep_window(dd[(dd.index >= t_ch_s) & (dd.index <= t_ch_e)])
+            d_dis = _prep_window(dd[(dd.index >= t_dis_s) & (dd.index <= t_dis_e)])
 
-            d_ch = dd[(dd.index >= t_ch_s) & (dd.index <= t_ch_e)]
-            d_dis = dd[(dd.index >= t_dis_s) & (dd.index <= t_dis_e)]
+            reg_charge = _check_cadence(d_ch["dt_s"] if not d_ch.empty else pd.Series([], dtype=float), SAMPLING_SECONDS)
+            reg_dis = _check_cadence(d_dis["dt_s"] if not d_dis.empty else pd.Series([], dtype=float), SAMPLING_SECONDS)
+
+            P_ch_star = (-d_ch["P"]).clip(lower=0.0).to_numpy(dtype=float) if not d_ch.empty else np.array([], dtype=float)
+            P_dis_star = (d_dis["P"]).clip(lower=0.0).to_numpy(dtype=float) if not d_dis.empty else np.array([], dtype=float)
 
             E_ch, E_dis = 0.0, 0.0
-            if not d_ch.empty:
-                 E_ch = np.trapz((-d_ch["P"]).clip(lower=0), x=d_ch.index.astype(np.int64)/1e9) / 3600.0
-            if not d_dis.empty:
-                 E_dis = np.trapz((d_dis["P"]).clip(lower=0), x=d_dis.index.astype(np.int64)/1e9) / 3600.0
+            
+            if SAMPLING_SECONDS is not None and reg_charge["is_regular"] and reg_dis["is_regular"]:
+                dt_h = float(SAMPLING_SECONDS) / 3600.0
+                E_ch = float(P_ch_star.sum() * dt_h) if P_ch_star.size else 0.0
+                E_dis = float(P_dis_star.sum() * dt_h) if P_dis_star.size else 0.0
+            else:
+                if not d_ch.empty and P_ch_star.size:
+                    t_c = d_ch.index.view("int64").to_numpy() / 1e9
+                    E_ch = float(np.trapz(P_ch_star, x=t_c) / 3600.0)
+                if not d_dis.empty and P_dis_star.size:
+                    t_d = d_dis.index.view("int64").to_numpy() / 1e9
+                    E_dis = float(np.trapz(P_dis_star, x=t_d) / 3600.0)
 
             eta = (E_dis / E_ch) if E_ch > self.config.get('rte_min_charge_kwh', 0.01) else np.nan
             rows.append({"Device": dev, "E_in": E_ch, "E_out": E_dis, "RTE": eta})
@@ -136,15 +161,12 @@ class DcCapacityTestAnalyzer:
         P_COL = self.config['dc_power_col']
         if P_COL not in self.df_dc.columns: return
         
-        scale = 1000.0 if self.config.get('dc_is_power_in_watts', False) else 1.0
+        scale = 1.0 # Assumes kW
         
         self.df_dc[P_COL] = pd.to_numeric(self.df_dc[P_COL], errors='coerce')
         
         power_wide = self.df_dc.pivot_table(index='Datetime', columns=self.config['dc_device_col'], values=P_COL, aggfunc='first')
         power_wide = power_wide.fillna(0.0).astype(float) / scale
-        
-        if not self.config.get('dc_discharge_positive', True):
-             power_wide = -power_wide
              
         P_system = power_wide.sum(axis=1).sort_index()
         
@@ -162,15 +184,13 @@ class DcCapacityTestAnalyzer:
         
         soc_wide = self.df_dc.pivot_table(index='Datetime', columns=self.config['dc_device_col'], values=SOC_COL, aggfunc='first')
         soc_wide = soc_wide.astype(float)
-        
-        if not self.config.get('dc_is_soc_percent', True):
-             soc_wide = soc_wide * 100.0
              
         self.dc_system_soc = soc_wide.mean(axis=1).sort_index()
 
 
-# SECTION 4: PLOTTING FUNCTIONS (Unchanged)
-
+# =======================================================================
+# SECTION 4: PLOTTING FUNCTIONS (FIXED)
+# =======================================================================
 
 def get_dc_efficiency_bar_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
     fig = go.Figure()
@@ -195,49 +215,72 @@ def get_dc_efficiency_bar_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
     )
     return fig
 
-def get_dc_energy_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
-    fig = go.Figure()
+# --- MODIFIED: This function is now fixed ---
+def get_dc_energy_soc_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
+    """Creates the DC cumulative energy & SOC Plotly figure."""
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
     e_data = analyzer.dc_system_cumulative_energy
-    if e_data is None or e_data.empty: return fig.update_layout(title="No energy data.")
-    
-    fig.add_trace(go.Scatter(
-        x=e_data.index, y=e_data.values, mode='lines', name='System DC Energy (Net)',
-        line=dict(color='#1f77b4', width=2.5)
-    ))
-    fig.update_layout(
-        title="System Cumulative Net DC Energy", xaxis_title="Time", yaxis_title="Energy (kWh)",
-        template="plotly_white", hovermode="x unified",
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="left", x=0)
-    )
-    return fig
-
-def get_dc_soc_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
-    fig = go.Figure()
     s_data = analyzer.dc_system_soc
-    if s_data is None or s_data.empty: return fig.update_layout(title="No SOC data.")
     
-    fig.add_trace(go.Scatter(
-        x=s_data.index, y=s_data.values, mode='lines', name='Avg System SOC',
-        line=dict(color='#2ca02c', width=2.5, dash="solid")
-    ))
+    has_energy = e_data is not None and not e_data.empty
+    has_soc = s_data is not None and not s_data.empty
+    
+    if not has_energy and not has_soc:
+        return fig.update_layout(title="No DC Energy or SOC data to plot.")
+
+    if has_energy:
+        fig.add_trace(go.Scatter(
+            x=e_data.index, y=e_data.values, mode='lines', name='System DC Energy (Net)',
+            line=dict(color='#1f77b4', width=2.5)
+        ), secondary_y=False) # Assign to primary y-axis
+    
+    if has_soc:
+        fig.add_trace(go.Scatter(
+            x=s_data.index, y=s_data.values, mode='lines', name='Avg System SOC',
+            line=dict(color='#2ca02c', width=2.0, dash="solid")
+        ), secondary_y=True) # Assign to secondary y-axis
+
+    # --- THIS IS THE FIX ---
     fig.update_layout(
-        title="Average System SOC", xaxis_title="Time", yaxis_title="SOC (%)",
-        template="plotly_white", hovermode="x unified",
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="left", x=0)
+        title="System Cumulative Net DC Energy and SOC",
+        xaxis_title="Time",
+        template="plotly_white", 
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="left", x=0),
+        
+        # Define Y-axis 1 (Energy)
+        yaxis=dict(
+            title=dict(text="Energy (kWh)", font=dict(color="#1f77b4")),
+            tickfont=dict(color="#1f77b4")
+            # NO 'secondary_y' key here
+        ),
+        
+        # Define Y-axis 2 (SOC)
+        yaxis2=dict(
+            title=dict(text="SOC (%)", font=dict(color="#2ca02c")),
+            tickfont=dict(color="#2ca02c"),
+            overlaying="y", 
+            side="right", 
+            showgrid=False
+            # NO 'secondary_y' key here
+        )
     )
+    # --- END OF FIX ---
+    
     return fig
+# --- END MODIFICATION ---
 
 
-# SECTION 5: STREAMLIT APP (STATE MANAGEMENT FIXED)
-
+# =======================================================================
+# SECTION 5: STREAMLIT APP (MODIFIED)
+# =======================================================================
 
 st.title("🔋 DC-Side Capacity & RTE Analysis")
 
-# --- Import login check ---
 from utils import check_login
-check_login() # <-- This is the guard for the page
+check_login() 
 
-# --- Initialize page-specific state ---
 if 'dc_analyzer' not in st.session_state: st.session_state.dc_analyzer = None
 if 'dc_df' not in st.session_state: st.session_state.dc_df = None
 if 'dc_last_file_id' not in st.session_state: st.session_state.dc_last_file_id = None
@@ -257,7 +300,6 @@ else:
 
 uploaded_file = st.sidebar.file_uploader("Upload DC Data File (CSV)", type=["csv"], key="dc_uploader")
 
-# --- MODIFIED: Robust state logic ---
 if uploaded_file is None:
     if 'dc_last_file_id' not in st.session_state or st.session_state.dc_last_file_id is None:
         st.info("Upload your DC-side (MVPS) file to continue.")
@@ -267,18 +309,17 @@ if uploaded_file is None:
     
 elif uploaded_file.file_id != st.session_state.get('dc_last_file_id'):
     st.session_state.dc_last_file_id = uploaded_file.file_id
-    st.session_state.dc_df = None # Force re-load
-    st.session_state.dc_analyzer = None # Clear old results
+    st.session_state.dc_df = None 
+    st.session_state.dc_analyzer = None 
+    st.rerun() 
 
 elif 'dc_df' not in st.session_state or st.session_state.dc_df is None:
-    # This catches the first run after upload
     with st.spinner("Loading DC data file..."):
         try:
             st.session_state.dc_df = load_and_prep_dc_data(uploaded_file)
         except Exception as e:
             st.error(f"Failed to load file: {e}")
             st.stop()
-# --- END MODIFICATION ---
 
 if 'dc_df' in st.session_state and st.session_state.dc_df is not None:
     df = st.session_state.dc_df
@@ -304,22 +345,25 @@ if 'dc_df' in st.session_state and st.session_state.dc_df is not None:
     st.sidebar.selectbox("SOC Column", soc_options, index=soc_idx, key="dc_soc_col")
 
     st.sidebar.subheader("Settings")
-    st.sidebar.checkbox("Power is in Watts (will convert to kW)", True, key="dc_is_watts")
-    st.sidebar.checkbox("Discharge is Positive Value", True, key="dc_dis_pos")
-    st.sidebar.checkbox("SOC is already % (0-100)", True, key="dc_soc_is_pct")
-
+    # --- MODIFIED: Added Sampling Interval, removed checkboxes ---
+    st.sidebar.number_input("Sampling Interval (s)", min_value=1, value=1, key="dc_sampling_seconds")
+    
     if st.sidebar.button("Run DC Analysis", type="primary", use_container_width=True):
         config = {
             "charge_start": st.session_state.master_charge_start,
             "charge_end": st.session_state.master_charge_end,
             "discharge_start": st.session_state.master_discharge_start,
             "discharge_end": st.session_state.master_discharge_end,
+            
             "dc_device_col": st.session_state.dc_device_col, 
             "dc_power_col": st.session_state.dc_power_col, 
             "dc_soc_col": st.session_state.dc_soc_col,
-            "dc_is_power_in_watts": st.session_state.dc_is_watts, 
-            "dc_discharge_positive": st.session_state.dc_dis_pos, 
-            "dc_is_soc_percent": st.session_state.dc_soc_is_pct,
+            
+            "sampling_seconds": st.session_state.dc_sampling_seconds,
+            "dc_is_power_in_watts": False, # Assumes kW
+            "dc_discharge_positive": True,  # Assumes positive discharge
+            "dc_is_soc_percent": True,      # Assumes 0-100%
+            
             "rte_min_charge_kwh": 0.1 
         }
         
@@ -343,11 +387,9 @@ if 'dc_analyzer' in st.session_state and st.session_state.dc_analyzer:
     rte_val = totals['System_RTE']*100 if pd.notna(totals['System_RTE']) else 0
     m3.metric("System DC RTE", f"{rte_val:.2f} %")
 
-    t1, t2, t3 = st.tabs(["Efficiency by Device", "System Cumulative Energy", "Avg System SOC"])
+    t1, t2 = st.tabs(["Efficiency by Device", "System Energy & SOC"])
     with t1:
         st.plotly_chart(get_dc_efficiency_bar_plot(an), use_container_width=True)
         st.dataframe(an.dc_rte_summary.style.format({"E_in": "{:,.1f}", "E_out": "{:,.1f}", "RTE": "{:.2%}"}), use_container_width=True)
     with t2:
-        st.plotly_chart(get_dc_energy_plot(an), use_container_width=True)
-    with t3:
-        st.plotly_chart(get_dc_soc_plot(an), use_container_width=True)
+        st.plotly_chart(get_dc_energy_soc_plot(an), use_container_width=True)

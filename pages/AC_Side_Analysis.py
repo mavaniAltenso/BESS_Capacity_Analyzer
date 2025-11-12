@@ -5,7 +5,6 @@ st.set_page_config(layout="wide", page_title="AC Analysis", page_icon="⚡")
 from utils import check_login
 check_login() # <-- This is the guard for the page
 
-# --- The rest of your code is unchanged ---
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -93,14 +92,14 @@ def find_all_events(df_ac: pd.DataFrame, time_col: str, power_col: str, idle_thr
     return sorted(events, key=lambda x: x['start'])
 
 # =======================================================================
-# SECTION 3: AC-SIDE ANALYSIS FUNCTIONS (Unchanged)
+# SECTION 3: AC-SIDE ANALYSIS FUNCTIONS (MERGED KPI LOGIC)
 # =======================================================================
 
 def compute_nominal_from_poi_plotly(
-    df: pd.DataFrame, discharge_start, discharge_end, P_nom_kW: float, tol_pct: float = 5.0, 
+    df: pd.DataFrame, discharge_start, discharge_end, 
     time_col: str = "Timestamp", power_col: str = "PoiPwrAt kW", title: str = "AC Power Analysis (Plotly)",
     drop_duplicate_timestamps: bool = True, charge_start: Optional[str] = None, charge_end: Optional[str] = None,
-    sampling_seconds: Optional[float] = None, discharge_positive: bool = True, warn_irregular: bool = True,
+    sampling_seconds: Optional[float] = None, warn_irregular: bool = True,
     rte_min_charge_kWh: float = 0.01, soc_col: Optional[str] = None,
     P_nom_charge_kW: Optional[float] = None, tol_charge_pct: Optional[float] = None,
     P_nom_discharge_kW: Optional[float] = None, tol_discharge_pct: Optional[float] = None
@@ -153,6 +152,8 @@ def compute_nominal_from_poi_plotly(
     dPlot = d[(d[time_col] >= plot_start) & (d[time_col] <= plot_end)].copy()
     if dPlot.empty: raise ValueError("No data in plot window.")
 
+    # --- KPI Calculation ---
+    # This section now uses the Nominal Discharge parameters by default
     dKPI = d[(d[time_col] >= ts_start) & (d[time_col] <= ts_end)][[time_col, power_col]].copy()
     if dKPI.empty or len(dKPI) < 2: raise ValueError("Insufficient data in discharge window.")
     
@@ -164,8 +165,17 @@ def compute_nominal_from_poi_plotly(
     dKPI["E_kWh_slice"] = dKPI[power_col] * (dKPI["dt_s"] / 3600.0)
     actual_energy_kWh = dKPI["E_kWh_slice"].sum()
 
-    band_low = P_nom_kW * (1 - tol_pct / 100.0)
-    band_high = P_nom_kW * (1 + tol_pct / 100.0)
+    # --- MODIFIED: Use P_nom_discharge_kW and tol_discharge_pct for KPI ---
+    if P_nom_discharge_kW is None or tol_discharge_pct is None:
+        raise ValueError("Nominal Discharge Power and Tolerance must be set for KPI calculation.")
+        
+    P_nom_kW_kpi = float(P_nom_discharge_kW)
+    tol_pct_kpi = float(tol_discharge_pct)
+    
+    band_low = P_nom_kW_kpi * (1 - tol_pct_kpi / 100.0)
+    band_high = P_nom_kW_kpi * (1 + tol_pct_kpi / 100.0)
+    # --- END MODIFICATION ---
+    
     dKPI["in_band"] = (dKPI[power_col] >= band_low) & (dKPI[power_col] <= band_high)
     
     shapes = []
@@ -185,6 +195,7 @@ def compute_nominal_from_poi_plotly(
     
     longest_s = max([s for *_, s in kpi_segs], default=0.0)
 
+    # --- RTE Calculations ---
     E_ch_kWh, E_dis_kWh, RTE_pct, E_ch_nom, E_dis_nom, RTE_nom = np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
     ch_nom_start_ts, ch_nom_end_ts = pd.NaT, pd.NaT
     dis_nom_start_ts, dis_nom_end_ts = pd.NaT, pd.NaT
@@ -207,7 +218,8 @@ def compute_nominal_from_poi_plotly(
              df_calc_poi_egymtr = d_ce[cols_for_df_calc]
 
         dd = d[[time_col, power_col]].copy()
-        dd["P"] = dd[power_col] if discharge_positive else -dd[power_col]
+        # --- MODIFIED: Removed discharge_positive logic ---
+        dd["P"] = dd[power_col] 
         d_ch = dd[(dd[time_col] >= c_start) & (dd[time_col] <= c_end)].copy()
         d_dis = dd[(dd[time_col] >= ts_start) & (dd[time_col] <= ts_end)].copy()
 
@@ -226,6 +238,7 @@ def compute_nominal_from_poi_plotly(
         if not np.isnan(E_ch_kWh) and E_ch_kWh > rte_min_charge_kWh: RTE_pct = 100.0 * E_dis_kWh / E_ch_kWh
         else: warnings_list.append(f"Full E_charge ({E_ch_kWh:.2f} kWh) is below min threshold for RTE calc.")
 
+        # --- Nominal RTE ---
         if P_nom_charge_kW is not None and tol_charge_pct is not None and not d_ch.empty:
             P_c, tol_c = float(P_nom_charge_kW), float(tol_charge_pct)/100.0
             ch_band_low, ch_band_high = P_c - abs(P_c)*tol_c, P_c + abs(P_c)*tol_c
@@ -265,10 +278,12 @@ def compute_nominal_from_poi_plotly(
         if not np.isnan(E_ch_nom) and E_ch_nom > rte_min_charge_kWh: RTE_nom = 100.0 * E_dis_nom / E_ch_nom
         else: warnings_list.append(f"Nominal E_charge ({E_ch_nom:.2f} kWh) is below min threshold for RTE calc.")
 
+    # --- Plotting ---
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dPlot[time_col], y=dPlot[power_col], mode="lines", name=f"{power_col}", line=dict(color="#1f77b4", width=2)))
     x_min, x_max = dPlot[time_col].min(), dPlot[time_col].max()
-    fig.add_trace(go.Scatter(x=[x_min, x_max], y=[band_low, band_low], mode="lines", name=f"Discharge Band (±{tol_pct:.0f}%)", line=dict(color="#2ca02c", width=1.5, dash="dash")))
+    # --- MODIFIED: Use the KPI band values for the trace ---
+    fig.add_trace(go.Scatter(x=[x_min, x_max], y=[band_low, band_low], mode="lines", name=f"Discharge Band (±{tol_pct_kpi:.0f}%)", line=dict(color="#2ca02c", width=1.5, dash="dash")))
     fig.add_trace(go.Scatter(x=[x_min, x_max], y=[band_high, band_high], mode="lines", line=dict(color="#2ca02c", width=1.5, dash="dash"), showlegend=False))
 
     if has_charge and P_nom_charge_kW is not None and tol_charge_pct is not None:
@@ -287,12 +302,14 @@ def compute_nominal_from_poi_plotly(
         legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="left", x=0)
     )
 
+    # --- New Summary Table ---
     metrics, values = [], []
     metrics.extend(["--- OVERALL SETTINGS ---", "Total Analysis Start", "Total Analysis End", "Sampling Interval (s)"])
     values.extend(["", plot_start.strftime('%Y-%m-%d %H:%M:%S'), plot_end.strftime('%Y-%m-%d %H:%M:%S'), sampling_seconds])
 
-    metrics.extend(["--- DISCHARGE KPI RESULTS ---", "KPI Window Start", "KPI Window End", "Nominal Power (kW)", "Tolerance (%)", "Total Actual Energy (kWh)", "Continuous In-Band Time (min)"])
-    values.extend(["", ts_start.strftime('%H:%M:%S'), ts_end.strftime('%H:%M:%S'), P_nom_kW, tol_pct, round(actual_energy_kWh, 3), round(longest_s/60.0, 3)])
+    # --- MODIFIED: Merged KPI results ---
+    metrics.extend(["--- DISCHARGE TEST RESULTS ---", "Discharge Window Start", "Discharge Window End", "Nominal Power (kW)", "Tolerance (%)", "Total Actual Energy (kWh)", "Continuous In-Band Time (min)"])
+    values.extend(["", ts_start.strftime('%H:%M:%S'), ts_end.strftime('%H:%M:%S'), P_nom_kW_kpi, tol_pct_kpi, round(actual_energy_kWh, 3), round(longest_s/60.0, 3)])
 
     if has_charge:
         metrics.extend(["--- FULL-CYCLE RTE (Method 2) ---", "Charge Start Time", "Charge End Time", "Discharge Start Time", "Discharge End Time", "Total Energy IN (kWh)", "Total Energy OUT (kWh)", "Full-Cycle RTE (%)"])
@@ -374,16 +391,14 @@ def plot_calc_poi_egymtr(df_energy: pd.DataFrame,
     return fig
 
 # =======================================================================
-# SECTION 4: WORKFLOW APPLICATION (STATE MANAGEMENT FIXED)
+# SECTION 4: WORKFLOW APPLICATION (SIMPLIFIED UI)
 # =======================================================================
 
 st.title("⚡ AC-Side Capacity & RTE Analysis")
 
-# --- Import login check ---
 from utils import check_login
-check_login() # <-- This is the guard for the page
+check_login() 
 
-# --- Initialize page-specific state ---
 STATE_INIT, STATE_PROCESSING, STATE_CHOOSE_ANALYSIS, STATE_CONFIGURE, STATE_RUNNING, STATE_RESULTS = "INIT", "PROC", "CHOOSE", "CONFIG", "RUN", "RES"
 if 'ac_workflow_state' not in st.session_state: 
     st.session_state.ac_workflow_state = STATE_INIT
@@ -398,29 +413,22 @@ def format_event(event):
 st.sidebar.header("AC Analysis Configuration")
 uploaded_file = st.sidebar.file_uploader("Upload AC Data File (HyCon)", type=["csv"], key="ac_uploader")
 
-# --- MODIFIED: Robust state logic ---
 if uploaded_file is None:
-    # If the uploader is empty AND we have no file ID, this is the initial state.
     if 'ac_last_file_id' not in st.session_state or st.session_state.ac_last_file_id is None:
         st.info("Upload your AC-side (HyCon) file to begin.")
         st.session_state.ac_workflow_state = STATE_INIT
         st.session_state.ac_df = None
         st.session_state.ac_results = None
-    # If uploader is empty but we DO have a file ID, user is on another page.
-    # We do *nothing* and let the rest of the script use the data in st.session_state.
     
 elif uploaded_file.file_id != st.session_state.get('ac_last_file_id'): 
-    # This is a NEW file upload.
     st.session_state.ac_last_file_id = uploaded_file.file_id
     st.session_state.ac_workflow_state = STATE_PROCESSING
-    st.session_state.ac_results = None # Clear old results
+    st.session_state.ac_results = None 
     st.rerun()
 
 elif st.session_state.ac_workflow_state == STATE_INIT and 'ac_df' not in st.session_state:
-    # This handles the very first run after uploading a file
     st.session_state.ac_workflow_state = STATE_PROCESSING
     st.rerun()
-# --- END MODIFICATION ---
 
 
 if st.session_state.ac_workflow_state == STATE_PROCESSING:
@@ -490,20 +498,19 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
         else:
             st.sidebar.success("Auto-Detected Times Active")
 
-        st.sidebar.subheader("Discharge KPI Settings")
-        st.sidebar.number_input("Discharge KPI Power (kW)", value=24500.0, key="ac_p_nom_kw")
-        st.sidebar.number_input("Discharge KPI Tolerance (%)", value=1.0, key="ac_tol_pct")
-        st.sidebar.number_input("Sampling Interval (s)", min_value=1, value=1, key="ac_sampling_seconds")
-        st.sidebar.checkbox("Discharge is Positive", True, key="ac_discharge_positive")
+        # --- MODIFIED: Simplified Settings ---
+        st.sidebar.subheader("RTE & KPI Settings")
+        st.sidebar.number_input("Nominal Power (kW)", value=24500.0, key="ac_p_nom_shared",
+                                help="The absolute nominal power. E.g., 24500. This will be used as +24500 for discharge and -24500 for charge.")
         
-        st.sidebar.subheader("Nominal Power RTE Settings")
         c5, c6 = st.sidebar.columns(2)
         with c5:
-             st.sidebar.number_input("Nominal Charge Power (kW)", value=-24500.0, key="ac_p_nom_charge_kw")
              st.sidebar.number_input("Nominal Charge Tol. (%)", value=10.0, key="ac_tol_charge_pct")
         with c6:
-             st.sidebar.number_input("Nominal Discharge Power (kW)", value=24500.0, key="ac_p_nom_discharge_kw")
              st.sidebar.number_input("Nominal Discharge Tol. (%)", value=1.0, key="ac_tol_discharge_pct")
+
+        st.sidebar.number_input("Sampling Interval (s)", min_value=1, value=1, key="ac_sampling_seconds")
+        # --- END MODIFICATION ---
         
         if st.sidebar.button("Run Analysis", type="primary", use_container_width=True): 
             st.session_state.ac_workflow_state = STATE_RUNNING
@@ -527,21 +534,9 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
         dis_events, ch_events = [e for e in all_events if e['type'] == 'Discharge'], [e for e in all_events if e['type'] == 'Charge']
         
         st.subheader("Choose Analysis Type")
-        c1, c2, c3 = st.columns(3)
+        # --- MODIFIED: Removed KPI column, now 2 columns ---
+        c1, c2 = st.columns(2)
         with c1:
-            with st.container(border=True):
-                st.markdown("#### 📈 Discharge KPI")
-                if not dis_events: st.warning("No discharge detected.")
-                else:
-                    sel_dis = st.selectbox("Select Event", [format_event(e) for e in dis_events], key="kpi_sel")
-                    if st.button("Configure KPI", use_container_width=True):
-                        ev = next(e for e in dis_events if format_event(e) == sel_dis)
-                        st.session_state.master_discharge_start = ev['start']
-                        st.session_state.master_discharge_end = ev['end']
-                        st.session_state.master_charge_start, st.session_state.master_charge_end = None, None
-                        st.session_state.ac_analysis_config = {"analysis_type": "KPI", "discharge_start": ev['start'], "discharge_end": ev['end'], "charge_start": None, "charge_end": None}
-                        st.session_state.ac_workflow_state = STATE_CONFIGURE; st.rerun()
-        with c2:
             with st.container(border=True):
                 st.markdown("#### 🔄 Round-Trip Efficiency")
                 if not dis_events or not ch_events: st.warning("Need both charge & discharge.")
@@ -555,9 +550,10 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
                         st.session_state.master_charge_end = ch_ev['end']
                         st.session_state.master_discharge_start = dis_ev['start']
                         st.session_state.master_discharge_end = dis_ev['end']
+                        # --- MODIFIED: KPI test is now just an RTE test ---
                         st.session_state.ac_analysis_config = {"analysis_type": "RTE", "discharge_start": dis_ev['start'], "discharge_end": dis_ev['end'], "charge_start": ch_ev['start'], "charge_end": ch_ev['end']}
                         st.session_state.ac_workflow_state = STATE_CONFIGURE; st.rerun()
-        with c3:
+        with c2:
             with st.container(border=True):
                 st.markdown("#### ⌨️ Manual Input")
                 st.info("Manually enter all start/end times.")
@@ -566,6 +562,7 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
                     st.session_state.master_discharge_start, st.session_state.master_discharge_end = None, None
                     st.session_state.ac_analysis_config = {"analysis_type": "MANUAL"}
                     st.session_state.ac_workflow_state = STATE_CONFIGURE; st.rerun()
+        # --- END MODIFICATION ---
 
     if st.session_state.ac_workflow_state == STATE_CONFIGURE:
         st.success("Settings loaded. Please review sidebar and click 'Run Analysis'.")
@@ -578,35 +575,45 @@ if 'ac_df' in st.session_state and st.session_state.ac_df is not None:
         with st.expander("Data Diagnostics"): convert_mixed_numeric_columns(st.session_state.ac_df, exclude={st.session_state.ac_time_col}, verbose=True)
 
     if st.session_state.ac_workflow_state == STATE_RUNNING:
-        with st.spinner("Analyzing AC Side..."):
-            try:
-                cfg = st.session_state.ac_analysis_config
-                final_cfg = {
-                    "discharge_start": cfg.get("discharge_start"),
-                    "discharge_end": cfg.get("discharge_end"),
-                    "P_nom_kW": st.session_state.ac_p_nom_kw,
-                    "tol_pct": st.session_state.ac_tol_pct,
-                    "charge_start": cfg.get("charge_start"),
-                    "charge_end": cfg.get("charge_end"),
-                    "discharge_positive": st.session_state.ac_discharge_positive,
-                    "P_nom_charge_kW": st.session_state.ac_p_nom_charge_kw,
-                    "tol_charge_pct": st.session_state.ac_tol_charge_pct,
-                    "P_nom_discharge_kW": st.session_state.ac_p_nom_discharge_kw,
-                    "tol_discharge_pct": st.session_state.ac_tol_discharge_pct,
-                    "sampling_seconds": st.session_state.ac_sampling_seconds,
-                    "time_col": st.session_state.ac_time_col,
-                    "power_col": st.session_state.ac_power_col,
-                    "soc_col": st.session_state.ac_soc_col
-                }
-                
-                results = compute_nominal_from_poi_plotly(st.session_state.ac_df, **final_cfg)
-                st.session_state.ac_results = results
-                st.session_state.ac_results_summary = results.get("summary_table")
-                st.session_state.ac_workflow_state = STATE_RESULTS; st.rerun()
-            except Exception as e: 
-                st.error(f"Analysis failed: {e}")
-                st.exception(e)
-                st.session_state.ac_workflow_state = STATE_CONFIGURE
+            with st.spinner("Analyzing AC Side..."):
+                try:
+                    cfg = st.session_state.ac_analysis_config
+                    
+                    # --- THIS IS THE CORRECTED DICTIONARY ---
+                    p_nom_shared = st.session_state.ac_p_nom_shared
+                    
+                    final_cfg = {
+                        "discharge_start": cfg.get("discharge_start"),
+                        "discharge_end": cfg.get("discharge_end"),
+                        "charge_start": cfg.get("charge_start"),
+                        "charge_end": cfg.get("charge_end"),
+                        
+                        # --- BUGFIX: These two lines are REMOVED ---
+                        # "P_nom_kW": p_nom_shared, 
+                        # "tol_pct": st.session_state.ac_tol_discharge_pct,
+                        # --- END BUGFIX ---
+                        
+                        # These are the correct parameters:
+                        "P_nom_charge_kW": -abs(p_nom_shared), # Ensure negative
+                        "tol_charge_pct": st.session_state.ac_tol_charge_pct,
+                        "P_nom_discharge_kW": abs(p_nom_shared), # Ensure positive
+                        "tol_discharge_pct": st.session_state.ac_tol_discharge_pct,
+                        
+                        "sampling_seconds": st.session_state.ac_sampling_seconds,
+                        "time_col": st.session_state.ac_time_col,
+                        "power_col": st.session_state.ac_power_col,
+                        "soc_col": st.session_state.ac_soc_col
+                    }
+                    # --- END CORRECTION ---
+                    
+                    results = compute_nominal_from_poi_plotly(st.session_state.ac_df, **final_cfg)
+                    st.session_state.ac_results = results
+                    st.session_state.ac_results_summary = results.get("summary_table")
+                    st.session_state.ac_workflow_state = STATE_RESULTS; st.rerun()
+                except Exception as e: 
+                    st.error(f"Analysis failed: {e}")
+                    st.exception(e)
+                    st.session_state.ac_workflow_state = STATE_CONFIGURE
 
     if st.session_state.ac_workflow_state == STATE_RESULTS:
         res = st.session_state.ac_results

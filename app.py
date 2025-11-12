@@ -60,3 +60,48 @@ st.markdown("""
 3.  **View `System_Summary`:**
     * This page will automatically show a combined report comparing AC and DC results, including inverter efficiencies.
 """)
+
+# --- NEW: Added explanation expander ---
+with st.expander("How Calculations Work"):
+    st.markdown(r"""
+    The application calculates energy (in kWh) by integrating power (in kW) over time (in hours).
+    
+    Let $P(t)$ be the power at time $t$. The total energy $E$ from a start time $T_{start}$ to an end time $T_{end}$ is the integral:
+    
+    $$
+    E = \int_{T_{start}}^{T_{end}} P(t) \,dt
+    $$
+    
+    The app performs this calculation numerically using the **Trapezoidal Rule** (`np.trapz`) on the time-series data for the highest accuracy.
+    
+    ---
+    
+    ### Full-Cycle RTE (Method 2) Calculations
+    
+    This method uses the **full "zero-to-zero" event windows** for calculations. Let $P_{AC}(t)$ be the AC power and $P_{DC,total}(t)$ be the total DC power.
+    
+    * **AC Energy In ($E_{AC,in}$):** The total energy measured at the AC-side during the **charge window** (where $P_{AC}(t)$ is negative).
+        $$
+        E_{AC,in} = \int_{T_{charge,start}}^{T_{charge,end}} |\min(0, P_{AC}(t))| \,dt
+        $$
+    
+    * **AC Energy Out ($E_{AC,out}$):** The total energy measured at the AC-side during the **discharge window** (where $P_{AC}(t)$ is positive).
+        $$
+        E_{AC,out} = \int_{T_{discharge,start}}^{T_{discharge,end}} \max(0, P_{AC}(t)) \,dt
+        $$
+    
+    * **DC Energy In ($E_{DC,in}$):** The sum of all DC device power during the **charge window**.
+        $$
+        E_{DC,in} = \int_{T_{charge,start}}^{T_{charge,end}} |\min(0, P_{DC,total}(t))| \,dt
+        $$
+        
+    * **DC Energy Out ($E_{DC,out}$):** The sum of all DC device power during the **discharge window**.
+        $$
+        E_{DC,out} = \int_{T_{discharge,start}}^{T_{discharge,end}} \max(0, P_{DC,total}(t)) \,dt
+        $$
+        
+    ### Nominal Power RTE (Method 1) Calculations
+    
+    This method uses the *exact same formulas* as above, but it first **filters the data**. The integrals are only performed on time slices where the power $P(t)$ is inside the user-defined "Nominal" tolerance band.
+    """)
+# --- END NEW SECTION ---
