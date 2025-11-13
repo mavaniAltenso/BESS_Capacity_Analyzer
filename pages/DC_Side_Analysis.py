@@ -8,7 +8,7 @@ check_login()
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots # <-- NEW IMPORT
+from plotly.subplots import make_subplots
 import warnings
 import re
 from typing import Optional, Dict, List, Tuple, Set
@@ -19,13 +19,15 @@ import io
 from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence 
 
 
-
+# =======================================================================
 # SECTION 1: DC DATA LOADING FUNCTION (Unchanged)
-
+# =======================================================================
 
 @st.cache_data
 def load_and_prep_dc_data(uploaded_file, sep=';', dayfirst=False) -> pd.DataFrame:
-
+    """
+    Loads and prepares the DC-side CSV file from an uploaded file object.
+    """
     df = pd.read_csv(uploaded_file, sep=sep, dtype=str, engine='python')
     df.columns = df.columns.str.strip()
     required_time_cols = ['Date', 'Time']
@@ -57,9 +59,9 @@ def load_and_prep_dc_data(uploaded_file, sep=';', dayfirst=False) -> pd.DataFram
     return df
 
 
-
+# =======================================================================
 # SECTION 3: DC ANALYZER CLASS (Unchanged)
-
+# =======================================================================
 
 class DcCapacityTestAnalyzer:
     def __init__(self, master_config: dict, df_dc: pd.DataFrame):
@@ -140,10 +142,10 @@ class DcCapacityTestAnalyzer:
             else:
                 if not d_ch.empty and P_ch_star.size:
                     t_c = d_ch.index.view("int64").to_numpy() / 1e9
-                    E_ch = float(np.trapz(P_ch_star, x=t_c) / 3600.0)
+                    E_ch = float(np.trapezoid(P_ch_star, x=t_c) / 3600.0)
                 if not d_dis.empty and P_dis_star.size:
                     t_d = d_dis.index.view("int64").to_numpy() / 1e9
-                    E_dis = float(np.trapz(P_dis_star, x=t_d) / 3600.0)
+                    E_dis = float(np.trapezoid(P_dis_star, x=t_d) / 3600.0)
 
             eta = (E_dis / E_ch) if E_ch > self.config.get('rte_min_charge_kwh', 0.01) else np.nan
             rows.append({"Device": dev, "E_in": E_ch, "E_out": E_dis, "RTE": eta})
@@ -186,9 +188,9 @@ class DcCapacityTestAnalyzer:
         self.dc_system_soc = soc_wide.mean(axis=1).sort_index()
 
 
-
-# SECTION 4: PLOTTING FUNCTIONS (FIXED)
-
+# =======================================================================
+# SECTION 4: PLOTTING FUNCTIONS (Unchanged)
+# =======================================================================
 
 def get_dc_efficiency_bar_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
     fig = go.Figure()
@@ -213,9 +215,8 @@ def get_dc_efficiency_bar_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
     )
     return fig
 
-# --- MODIFIED: This function is now fixed ---
 def get_dc_energy_soc_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
-
+    """Creates the DC cumulative energy & SOC Plotly figure."""
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
     e_data = analyzer.dc_system_cumulative_energy
@@ -239,7 +240,6 @@ def get_dc_energy_soc_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
             line=dict(color='#2ca02c', width=2.0, dash="solid")
         ), secondary_y=True) # Assign to secondary y-axis
 
-    # --- THIS IS THE FIX ---
     fig.update_layout(
         title="System Cumulative Net DC Energy and SOC",
         xaxis_title="Time",
@@ -247,34 +247,28 @@ def get_dc_energy_soc_plot(analyzer: DcCapacityTestAnalyzer) -> go.Figure:
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="left", x=0),
         
-        # Define Y-axis 1 (Energy)
         yaxis=dict(
             title=dict(text="Energy (kWh)", font=dict(color="#1f77b4")),
             tickfont=dict(color="#1f77b4")
-            # NO 'secondary_y' key here
         ),
         
-        # Define Y-axis 2 (SOC)
         yaxis2=dict(
             title=dict(text="SOC (%)", font=dict(color="#2ca02c")),
             tickfont=dict(color="#2ca02c"),
             overlaying="y", 
             side="right", 
             showgrid=False
-            # NO 'secondary_y' key here
         )
     )
-    # --- END OF FIX ---
     
     return fig
-# --- END MODIFICATION ---
 
 
+# =======================================================================
+# SECTION 5: STREAMLIT APP (STATE MANAGEMENT & UI ORDER FIXED)
+# =======================================================================
 
-# SECTION 5: STREAMLIT APP (MODIFIED)
-
-
-st.title("🔋 DC Capacity & RTE Analysis")
+st.title("🔋 DC-Side Capacity & RTE Analysis")
 
 from utils import check_login
 check_login() 
@@ -285,16 +279,29 @@ if 'dc_last_file_id' not in st.session_state: st.session_state.dc_last_file_id =
 
 st.sidebar.header("DC Analysis Configuration")
 
-if 'master_charge_start' not in st.session_state or st.session_state.master_charge_start is None:
-    st.error("Please run an AC-Side Analysis first to set the master time windows.")
-    st.info("Navigate to the `AC_Side_Analysis` page from the sidebar to begin.")
-    st.stop()
-else:
+# --- Time window logic MUST come before file uploader logic ---
+# --- This ensures the manual widgets can be created *after* the file is loaded ---
+charge_start_time = None
+charge_end_time = None
+discharge_start_time = None
+discharge_end_time = None
+manual_override = False
+
+if 'master_charge_start' in st.session_state and st.session_state.master_charge_start is not None:
     st.sidebar.success("Using time windows from AC Analysis:")
     st.sidebar.markdown(f"""
     * **Charge:** `{st.session_state.master_charge_start.strftime('%H:%M:%S')}` to `{st.session_state.master_charge_end.strftime('%H:%M:%S')}`
     * **Discharge:** `{st.session_state.master_discharge_start.strftime('%H:%M:%S')}` to `{st.session_state.master_discharge_end.strftime('%H:%M:%S')}`
     """)
+    charge_start_time = st.session_state.master_charge_start
+    charge_end_time = st.session_state.master_charge_end
+    discharge_start_time = st.session_state.master_discharge_start
+    discharge_end_time = st.session_state.master_discharge_end
+    
+    manual_override = st.sidebar.checkbox("Manually override time windows", key="dc_manual_override")
+else:
+    st.sidebar.warning("AC Analysis not yet run. Please enter times manually.")
+    manual_override = True # Force manual mode
 
 uploaded_file = st.sidebar.file_uploader("Upload DC Data File (CSV)", type=["csv"], key="dc_uploader")
 
@@ -319,11 +326,45 @@ elif 'dc_df' not in st.session_state or st.session_state.dc_df is None:
             st.error(f"Failed to load file: {e}")
             st.stop()
 
+# --- MODIFIED: ALL UI elements are now INSIDE this block ---
 if 'dc_df' in st.session_state and st.session_state.dc_df is not None:
     df = st.session_state.dc_df
     all_cols = df.columns.tolist()
 
-    with st.expander("Data Preview"):
+    # --- THIS BLOCK IS NOW CORRECTLY PLACED ---
+    if manual_override:
+        st.sidebar.subheader("Manual Time Windows")
+        try:
+            first_ts = st.session_state.dc_df.index[0]
+            d_default = first_ts.date()
+            t_default = first_ts.time()
+        except Exception:
+            d_default = pd.to_datetime("today").date()
+            t_default = pd.to_datetime("12:00").time()
+        
+        c1,c2 = st.sidebar.columns(2)
+        with c1: 
+            ch_s_d = st.date_input("Charge Start", d_default, key="dc_ch_s_d")
+            ch_s_t = st.time_input("Time", t_default, key="dc_ch_s_t")
+        with c2: 
+            ch_e_d = st.date_input("Charge End", d_default, key="dc_ch_e_d")
+            ch_e_t = st.time_input("Time", t_default, key="dc_ch_e_t")
+        
+        c3,c4 = st.sidebar.columns(2)
+        with c3: 
+            dis_s_d = st.date_input("Discharge Start", d_default, key="dc_dis_s_d")
+            dis_s_t = st.time_input("Time", t_default, key="dc_dis_s_t")
+        with c4: 
+            dis_e_d = st.date_input("Discharge End", d_default, key="dc_dis_e_d")
+            dis_e_t = st.time_input("Time", t_default, key="dc_dis_e_t")
+            
+        charge_start_time = pd.Timestamp(f"{ch_s_d} {ch_s_t}")
+        charge_end_time = pd.Timestamp(f"{ch_e_d} {ch_e_t}")
+        discharge_start_time = pd.Timestamp(f"{dis_s_d} {dis_s_t}")
+        discharge_end_time = pd.Timestamp(f"{dis_e_d} {dis_e_t}")
+    # --- END OF MOVED BLOCK ---
+
+    with st.expander("Show Data Preview (First 10 Rows)"):
         st.dataframe(df.head(10), use_container_width=True)
 
     st.sidebar.subheader("Column Selection")
@@ -343,15 +384,14 @@ if 'dc_df' in st.session_state and st.session_state.dc_df is not None:
     st.sidebar.selectbox("SOC Column", soc_options, index=soc_idx, key="dc_soc_col")
 
     st.sidebar.subheader("Settings")
-    # --- MODIFIED: Added Sampling Interval, removed checkboxes ---
     st.sidebar.number_input("Sampling Interval (s)", min_value=1, value=1, key="dc_sampling_seconds")
     
     if st.sidebar.button("Run DC Analysis", type="primary", use_container_width=True):
         config = {
-            "charge_start": st.session_state.master_charge_start,
-            "charge_end": st.session_state.master_charge_end,
-            "discharge_start": st.session_state.master_discharge_start,
-            "discharge_end": st.session_state.master_discharge_end,
+            "charge_start": charge_start_time,
+            "charge_end": charge_end_time,
+            "discharge_start": discharge_start_time,
+            "discharge_end": discharge_end_time,
             
             "dc_device_col": st.session_state.dc_device_col, 
             "dc_power_col": st.session_state.dc_power_col, 
