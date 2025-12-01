@@ -182,39 +182,88 @@ if uploaded_file is not None:
     
     if df is not None:
         # --- WHOLE FILE PRE-CALCULATION ---
+        # 1. Calculate Time Step (Hours)
         df['delta_h'] = df.index.to_series().diff().dt.total_seconds().div(3600).fillna(0)
         
-        # Check if basic columns exist before plotting
-        if 'InvMs.TotW kW' in df.columns:
-            p_disch = df['InvMs.TotW kW'].clip(lower=0)
-            p_charg = df['InvMs.TotW kW'].clip(upper=0).abs()
-            df['Full_Cum_Discharge'] = (p_disch * df['delta_h']).cumsum()
-            df['Full_Cum_Charge'] = (p_charg * df['delta_h']).cumsum()
+        # 2. CHECK REQUIRED COLUMNS FIRST
+        if 'InvMs.TotW kW' not in df.columns:
+             st.error("File missing required power columns (InvMs.TotW kW).")
+        else:
+            # --- START VALID VISUALIZATION BLOCK ---
+            
+            # AC Net Energy
+            df['Net_Cum_Energy_AC'] = (df['InvMs.TotW kW'] * df['delta_h']).cumsum()
 
-            # --- SECTION 1: VISUALIZE FIRST ---
+            # DC Net Energy
+            if 'DcMs.TotWatt kW' in df.columns:
+                df['Net_Cum_Energy_DC'] = (df['DcMs.TotWatt kW'] * df['delta_h']).cumsum()
+            else:
+                df['Net_Cum_Energy_DC'] = 0.0
+
+            # --- SECTION 1: VISUALIZE ---
             st.subheader("Inspect Data & Select Window")
-            st.info("Use the charts below to identify correct cycle.")
+            st.info("Visualizing Net Energy Profile (Continuous Integration). Compare AC vs DC curves to see losses.")
 
-            tab_view1, tab_view2 = st.tabs(["Active Power & SoC", "Cumulative Energy"])
+            tab_view1, tab_view2 = st.tabs(["Active Power & SoC", "Cumulative Energy (AC & DC)"])
 
             with tab_view1:
                 fig = make_subplots(specs=[[{"secondary_y": True}]])
-                fig.add_trace(go.Scatter(x=df.index, y=df['InvMs.TotW kW'], name="Active Power (kW)", line=dict(color='blue', width=1)), secondary_y=False)
+                
+                # AC Power
+                fig.add_trace(go.Scatter(x=df.index, y=df['InvMs.TotW kW'], name="AC Power (kW)", line=dict(color='blue', width=1)), secondary_y=False)
+                
+                # DC Power (Optional comparison in first tab)
+                if 'DcMs.TotWatt kW' in df.columns:
+                    fig.add_trace(go.Scatter(x=df.index, y=df['DcMs.TotWatt kW'], name="DC Power (kW)", line=dict(color='purple', width=1, dash='dot'), visible='legendonly'), secondary_y=False)
+
+                # SOC
                 if 'Bat.SOCTot %' in df.columns:
-                    fig.add_trace(go.Scatter(x=df.index, y=df['Bat.SOCTot %'], name="SoC (%)", line=dict(color='green', width=2, dash='dot')), secondary_y=True)
+                    fig.add_trace(go.Scatter(x=df.index, y=df['Bat.SOCTot %'], name="SoC (%)", line=dict(color='green', width=2)), secondary_y=True)
                     fig.update_yaxes(title_text="State of Charge (%)", secondary_y=True, range=[0, 105])
+                
                 fig.update_layout(title_text="Active Power & SoC", hovermode="x unified", height=500)
                 st.plotly_chart(fig, use_container_width=True)
 
             with tab_view2:
+                # --- UPDATED PLOT: NET ENERGY (AC vs DC) ---
                 fig2 = go.Figure()
-                fig2.add_trace(go.Scatter(x=df.index, y=df['Full_Cum_Discharge'], name="Total Discharged (Out)", line=dict(color='purple', width=2)))
-                fig2.add_trace(go.Scatter(x=df.index, y=df['Full_Cum_Charge'], name="Total Charged (In)", line=dict(color='orange', width=2)))
-                fig2.update_layout(title_text="Cumulative Energy (Entire File)", yaxis_title="kWh", hovermode="x unified", height=500)
+                
+                # 1. AC Net Energy Line
+                if 'Net_Cum_Energy_AC' in df.columns:
+                    fig2.add_trace(go.Scatter(
+                        x=df.index, 
+                        y=df['Net_Cum_Energy_AC'], 
+                        name="AC (Grid)", 
+                        line=dict(color='#1f77b4', width=2.5) # Blue
+                    ))
+
+                # 2. DC Net Energy Line
+                if 'Net_Cum_Energy_DC' in df.columns:
+                    fig2.add_trace(go.Scatter(
+                        x=df.index, 
+                        y=df['Net_Cum_Energy_DC'], 
+                        name="DC (Battery)", 
+                        line=dict(color='#d62728', width=2.5) # Red
+                    ))
+                
+                fig2.update_layout(
+                    title_text="Energy Profiles (AC & DC)", 
+                    yaxis_title="Net Cumulative Energy (kWh)", 
+                    hovermode="x unified", 
+                    height=500
+                )
+                
+                # Add a zero line reference
+                fig2.add_hline(y=0, line_dash="dash", line_color="gray")
+                
                 st.plotly_chart(fig2, use_container_width=True)
-                tot_out = df['Full_Cum_Discharge'].iloc[-1]
-                tot_in = df['Full_Cum_Charge'].iloc[-1]
-                st.caption(f"**File Totals:** Input: {tot_in:,.2f} kWh | Output: {tot_out:,.2f} kWh")
+                
+                # Stats Snippet
+                ac_final = df['Net_Cum_Energy_AC'].iloc[-1] if 'Net_Cum_Energy_AC' in df.columns else 0
+                dc_final = df['Net_Cum_Energy_DC'].iloc[-1] if 'Net_Cum_Energy_DC' in df.columns else 0
+                diff = abs(ac_final - dc_final)
+                
+                st.caption(f"**Final Status:** AC Net: {ac_final:,.2f} kWh | DC Net: {dc_final:,.2f} kWh | Difference: {diff:,.2f} kWh")
 
             # --- SECTION 2: DEFINE WINDOW (GRID LAYOUT) ---
             st.subheader("Calculation Window")
@@ -307,5 +356,3 @@ if uploaded_file is not None:
                             
                     else:
                         st.error("No valid data found in selected window or missing columns.")
-        else:
-             st.error("File missing required power columns (InvMs.TotW kW).")
