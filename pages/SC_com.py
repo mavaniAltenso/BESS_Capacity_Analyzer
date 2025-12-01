@@ -269,7 +269,7 @@ if uploaded_file is not None:
                             
                             # TABLE WITHOUT DIFF COLUMN
                             comp_data = {
-                                "Metric": ["AC Discharge (To Grid)", "AC Charge (From Grid)", "DC Discharge (From Batt)", "DC Charge (To Batt)"],
+                                "Metric": ["AC Discharge", "AC Charge", "DC Discharge", "DC Charge"],
                                 "Calculated (kWh)": [results['ac_disch_calc'], results['ac_charg_calc'], results['dc_disch_calc'], results['dc_charg_calc']],
                                 "Counter (kWh)": [results['ac_disch_cnt'], results['ac_charg_cnt'], results['dc_disch_cnt'], results['dc_charg_cnt']]
                             }
