@@ -14,7 +14,13 @@ import re
 from typing import Optional, Dict, List, Tuple, Set
 from pathlib import Path
 import io
-
+def _trapz_compat(y, x):
+    if hasattr(np, "trapezoid"):
+        return np.trapezoid(y, x=x)
+    elif hasattr(np, "trapz"):
+        return np.trapz(y, x=x)
+    else:
+        raise AttributeError("Neither np.trapezoid nor np.trapz is available in this NumPy version.")
 # Import shared functions
 from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence 
 
@@ -142,10 +148,10 @@ class DcCapacityTestAnalyzer:
             else:
                 if not d_ch.empty and P_ch_star.size:
                     t_c = d_ch.index.view("int64").to_numpy() / 1e9
-                    E_ch = float(np.trapezoid(P_ch_star, x=t_c) / 3600.0)
+                    E_ch = float(_trapz_compat(P_ch_star, x=t_c) / 3600.0)
                 if not d_dis.empty and P_dis_star.size:
                     t_d = d_dis.index.view("int64").to_numpy() / 1e9
-                    E_dis = float(np.trapezoid(P_dis_star, x=t_d) / 3600.0)
+                    E_dis = float(_trapz_compat(P_dis_star, x=t_d) / 3600.0)
 
             eta = (E_dis / E_ch) if E_ch > self.config.get('rte_min_charge_kwh', 0.01) else np.nan
             rows.append({"Device": dev, "E_in": E_ch, "E_out": E_dis, "RTE": eta})
