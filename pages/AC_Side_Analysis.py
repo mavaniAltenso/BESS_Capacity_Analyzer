@@ -279,7 +279,7 @@ def compute_nominal_from_poi_plotly(
             dis_band_low, dis_band_high = P_d - abs(P_d)*tol_d, P_d + abs(P_d)*tol_d
             d_dis_nom = d_dis[(d_dis["P"] >= dis_band_low) & (d_dis["P"] <= dis_band_high)]
             if not d_dis_nom.empty: 
-                E_dis_nom = np._trapz_compat(d_dis_nom["P"].clip(lower=0).to_numpy(),x=d_dis_nom[time_col].astype("int64") / 1e9) / 3600.0
+                E_dis_nom = _trapz_compat(d_dis_nom["P"].clip(lower=0).to_numpy(),x=d_dis_nom[time_col].astype("int64") / 1e9) / 3600.0
                 dis_nom_start_ts = d_dis_nom[time_col].min()
                 dis_nom_end_ts = d_dis_nom[time_col].max()
             else: warnings_list.append(f"No discharge data found in Nominal Band [{dis_band_low:.0f}, {dis_band_high:.0f}] kW.")
