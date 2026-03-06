@@ -14,6 +14,13 @@ from typing import Optional, Dict, List, Tuple, Set
 from pathlib import Path
 import io
 
+def _trapz_compat(y, x):
+    if hasattr(np, "trapezoid"):
+        return np.trapezoid(y, x=x)
+    elif hasattr(np, "trapz"):
+        return np.trapz(y, x=x)
+    else:
+        raise AttributeError("Neither np.trapezoid nor np.trapz is available in this NumPy version.")
 # Import shared functions
 from utils import convert_mixed_numeric_columns, _sanitize_time_col, _check_cadence
 
@@ -234,9 +241,9 @@ def compute_nominal_from_poi_plotly(
         P_dis_star = d_dis["P"].clip(lower=0.0).to_numpy() if not d_dis.empty else np.array([])
         
         if not d_ch.empty:
-            E_ch_kWh = np.trapezoid(P_ch_star, x=d_ch[time_col].astype("int64") / 1e9) / 3600.0
+            E_ch_kWh = _trapz_compat(P_ch_star, x=d_ch[time_col].astype("int64") / 1e9) / 3600.0
         if not d_dis.empty:
-            E_dis_kWh = np.trapezoid(P_dis_star, x=d_dis[time_col].astype("int64") / 1e9) / 3600.0
+            E_dis_kWh = _trapz_compat(P_dis_star, x=d_dis[time_col].astype("int64") / 1e9) / 3600.0
         if not np.isnan(E_ch_kWh) and E_ch_kWh > rte_min_charge_kWh: RTE_pct = 100.0 * E_dis_kWh / E_ch_kWh
         else: warnings_list.append(f"Full E_charge ({E_ch_kWh:.2f} kWh) is below min threshold for RTE calc.")
 
@@ -262,7 +269,7 @@ def compute_nominal_from_poi_plotly(
                                    line_width=0, layer="below"))
             
             if not d_ch_nom.empty: 
-                E_ch_nom = np.trapezoid((-d_ch_nom["P"]).clip(lower=0).to_numpy(),x=d_ch_nom[time_col].astype("int64") / 1e9) / 3600.0
+                E_ch_nom = _trapz_compat((-d_ch_nom["P"]).clip(lower=0).to_numpy(),x=d_ch_nom[time_col].astype("int64") / 1e9) / 3600.0
                 ch_nom_start_ts = d_ch_nom[time_col].min()
                 ch_nom_end_ts = d_ch_nom[time_col].max()
             else: warnings_list.append(f"No charge data found in Nominal Band [{ch_band_low:.0f}, {ch_band_high:.0f}] kW.")
@@ -272,7 +279,7 @@ def compute_nominal_from_poi_plotly(
             dis_band_low, dis_band_high = P_d - abs(P_d)*tol_d, P_d + abs(P_d)*tol_d
             d_dis_nom = d_dis[(d_dis["P"] >= dis_band_low) & (d_dis["P"] <= dis_band_high)]
             if not d_dis_nom.empty: 
-                E_dis_nom = np.trapezoid(d_dis_nom["P"].clip(lower=0).to_numpy(),x=d_dis_nom[time_col].astype("int64") / 1e9) / 3600.0
+                E_dis_nom = np._trapz_compat(d_dis_nom["P"].clip(lower=0).to_numpy(),x=d_dis_nom[time_col].astype("int64") / 1e9) / 3600.0
                 dis_nom_start_ts = d_dis_nom[time_col].min()
                 dis_nom_end_ts = d_dis_nom[time_col].max()
             else: warnings_list.append(f"No discharge data found in Nominal Band [{dis_band_low:.0f}, {dis_band_high:.0f}] kW.")
